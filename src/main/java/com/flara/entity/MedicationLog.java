@@ -9,6 +9,8 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 /**
  * Stores a user's medication and treatment log.
  * Tracks dosage, timing, adherence, and biologic infusion dates.
@@ -25,6 +27,7 @@ public class MedicationLog {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;

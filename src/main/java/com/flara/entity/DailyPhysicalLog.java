@@ -9,6 +9,8 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 /**
  * Stores a user's daily physical symptom log.
  * Includes guided pain score, bowel tracking, and condition-specific symptoms.
@@ -25,6 +27,7 @@ public class DailyPhysicalLog {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
