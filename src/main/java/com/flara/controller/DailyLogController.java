@@ -110,4 +110,20 @@ public class DailyLogController {
         return ResponseEntity.ok(dailyLogService.updateMentalLog(
                 userDetails.getUsername(), id, log));
     }
+
+    @DeleteMapping("/physical/{id}")
+    public ResponseEntity<Void> deletePhysicalLog(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long id) {
+        dailyLogService.deletePhysicalLog(userDetails.getUsername(), id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/mental/{id}")
+    public ResponseEntity<Void> deleteMentalLog(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long id) {
+        dailyLogService.deleteMentalLog(userDetails.getUsername(), id);
+        return ResponseEntity.noContent().build();
+    }
 }

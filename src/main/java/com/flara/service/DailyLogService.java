@@ -122,4 +122,24 @@ public class DailyLogService {
         updated.setLogDate(existing.getLogDate());
         return mentalLogRepository.save(updated);
     }
+
+    public void deletePhysicalLog(String username, Long logId) {
+        User user = getUser(username);
+        DailyPhysicalLog existing = physicalLogRepository.findById(logId)
+                .orElseThrow(() -> new RuntimeException("Log not found."));
+        if (!existing.getUser().getId().equals(user.getId())) {
+            throw new RuntimeException("Unauthorized.");
+        }
+        physicalLogRepository.deleteById(logId);
+    }
+
+    public void deleteMentalLog(String username, Long logId) {
+        User user = getUser(username);
+        DailyMentalLog existing = mentalLogRepository.findById(logId)
+                .orElseThrow(() -> new RuntimeException("Log not found."));
+        if (!existing.getUser().getId().equals(user.getId())) {
+            throw new RuntimeException("Unauthorized.");
+        }
+        mentalLogRepository.deleteById(logId);
+    }
 }
