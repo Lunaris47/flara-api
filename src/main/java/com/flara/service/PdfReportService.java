@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.OptionalDouble;
@@ -34,13 +35,8 @@ public class PdfReportService {
     private final DailyMentalLogRepository mentalLogRepository;
     private final FlareRepository flareRepository;
 
-    // ===============================
-    // COLORS
-    // ===============================
-    private static final BaseColor DARK_BG = new BaseColor(26, 26, 46);
     private static final BaseColor ACCENT = new BaseColor(200, 169, 126);
     private static final BaseColor LIGHT_GRAY = new BaseColor(240, 240, 240);
-    private static final BaseColor SECTION_BG = new BaseColor(22, 33, 62);
     private static final BaseColor TEXT_DARK = new BaseColor(44, 44, 44);
     private static final BaseColor TEXT_GRAY = new BaseColor(100, 100, 100);
     private static final BaseColor RED = new BaseColor(252, 129, 129);
@@ -63,17 +59,16 @@ public class PdfReportService {
                 .findByUserIdAndLogDateBetweenOrderByLogDateDesc(user.getId(), startDate, endDate);
 
         List<Flare> flares = flareRepository
-                .findByUserIdAndStartDateBetweenOrderByStartDateDesc(user.getId(), startDate, endDate);
+                .findByUserIdAndStartDateBetweenOrderByStartDateDesc(
+                        user.getId(),
+                        startDate.atStartOfDay(),
+                        endDate.atTime(23, 59, 59));
 
-        // ===============================
-        // BUILD PDF
-        // ===============================
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         Document document = new Document(PageSize.A4, 50, 50, 60, 60);
         PdfWriter.getInstance(document, out);
         document.open();
 
-        // FONTS
         Font titleFont = new Font(Font.FontFamily.HELVETICA, 24, Font.BOLD, new BaseColor(44, 44, 44));
         Font headingFont = new Font(Font.FontFamily.HELVETICA, 14, Font.BOLD, new BaseColor(44, 44, 44));
         Font subheadingFont = new Font(Font.FontFamily.HELVETICA, 11, Font.BOLD, TEXT_GRAY);
@@ -81,9 +76,6 @@ public class PdfReportService {
         Font smallFont = new Font(Font.FontFamily.HELVETICA, 9, Font.NORMAL, TEXT_GRAY);
         Font accentFont = new Font(Font.FontFamily.HELVETICA, 10, Font.BOLD, new BaseColor(139, 90, 43));
 
-        // ===============================
-        // HEADER
-        // ===============================
         Paragraph title = new Paragraph("Flara Health Report", titleFont);
         title.setAlignment(Element.ALIGN_CENTER);
         title.setSpacingAfter(4);
@@ -104,12 +96,8 @@ public class PdfReportService {
         generated.setSpacingAfter(20);
         document.add(generated);
 
-        // Divider
         addDivider(document);
 
-        // ===============================
-        // SUMMARY BOX
-        // ===============================
         document.add(Chunk.NEWLINE);
         addSectionHeader(document, "Summary", headingFont);
 
@@ -143,7 +131,6 @@ public class PdfReportService {
         addSummaryCell(summaryTable, "Avg Sleep", String.format("%.1f/10", avgSleep), new BaseColor(118, 228, 247));
         document.add(summaryTable);
 
-        // Stats row
         PdfPTable statsTable = new PdfPTable(3);
         statsTable.setWidthPercentage(100);
         statsTable.setSpacingAfter(20);
@@ -154,30 +141,23 @@ public class PdfReportService {
 
         addDivider(document);
 
-        // ===============================
-        // PHYSICAL HEALTH
-        // ===============================
         document.add(Chunk.NEWLINE);
         addSectionHeader(document, "Physical Health", headingFont);
 
         if (physicalLogs.isEmpty()) {
             document.add(new Paragraph("No physical logs recorded in this period.", smallFont));
         } else {
-            // Pain breakdown
             long lowPainDays = physicalLogs.stream()
                     .filter(l -> l.getPainScore() != null && l.getPainScore() <= 3).count();
             long highPainDays = physicalLogs.stream()
                     .filter(l -> l.getPainScore() != null && l.getPainScore() >= 7).count();
 
             Paragraph painBreakdown = new Paragraph(
-                    String.format("Low pain days (≤3/10): %d    High pain days (≥7/10): %d    Average: %.1f/10",
-                            lowPainDays, highPainDays, avgPain),
-                    bodyFont
-            );
+                    String.format("Low pain days (<=3/10): %d    High pain days (>=7/10): %d    Average: %.1f/10",
+                            lowPainDays, highPainDays, avgPain), bodyFont);
             painBreakdown.setSpacingAfter(10);
             document.add(painBreakdown);
 
-            // Symptom frequency
             long fatigueDays = physicalLogs.stream().filter(l -> Boolean.TRUE.equals(l.getFatigue())).count();
             long jointPainDays = physicalLogs.stream().filter(l -> Boolean.TRUE.equals(l.getJointPain())).count();
             long nauseaDays = physicalLogs.stream().filter(l -> Boolean.TRUE.equals(l.getNausea())).count();
@@ -195,7 +175,6 @@ public class PdfReportService {
             addSymptomCell(symptomTable, "Fever", feverDays, physicalLogs.size(), bodyFont, smallFont);
             document.add(symptomTable);
 
-            // Average bowel frequency
             OptionalDouble avgBowel = physicalLogs.stream()
                     .filter(l -> l.getBowelFrequency() != null)
                     .mapToInt(DailyPhysicalLog::getBowelFrequency)
@@ -203,19 +182,15 @@ public class PdfReportService {
 
             if (avgBowel.isPresent()) {
                 Paragraph bowelPara = new Paragraph(
-                        String.format("Average daily bowel movements: %.1f", avgBowel.getAsDouble()),
-                        bodyFont
-                );
+                        String.format("Average daily bowel movements: %.1f", avgBowel.getAsDouble()), bodyFont);
                 bowelPara.setSpacingAfter(10);
                 document.add(bowelPara);
             }
 
-            // Recent logs table
             addSubheading(document, "Recent Physical Logs", subheadingFont);
             PdfPTable logsTable = new PdfPTable(new float[]{2, 1.5f, 1.5f, 1.5f, 3});
             logsTable.setWidthPercentage(100);
             logsTable.setSpacingAfter(16);
-
             addTableHeader(logsTable, new String[]{"Date", "Pain", "Bowel", "Energy", "Symptoms"}, subheadingFont);
 
             for (DailyPhysicalLog log : physicalLogs.stream().limit(10).toList()) {
@@ -233,9 +208,6 @@ public class PdfReportService {
 
         addDivider(document);
 
-        // ===============================
-        // MENTAL HEALTH
-        // ===============================
         document.add(Chunk.NEWLINE);
         addSectionHeader(document, "Mental Health & Stress", headingFont);
 
@@ -244,9 +216,7 @@ public class PdfReportService {
         } else {
             Paragraph mentalBreakdown = new Paragraph(
                     String.format("Average stress: %.1f/10    Average mood: %.1f/10    Average sleep quality: %.1f/10",
-                            avgStress, avgMood, avgSleep),
-                    bodyFont
-            );
+                            avgStress, avgMood, avgSleep), bodyFont);
             mentalBreakdown.setSpacingAfter(10);
             document.add(mentalBreakdown);
 
@@ -255,18 +225,14 @@ public class PdfReportService {
 
             Paragraph meditationPara = new Paragraph(
                     String.format("Mindfulness/meditation practiced: %d of %d days logged",
-                            meditationDays, mentalLogs.size()),
-                    bodyFont
-            );
+                            meditationDays, mentalLogs.size()), bodyFont);
             meditationPara.setSpacingAfter(10);
             document.add(meditationPara);
 
-            // Stress event breakdown
             addSubheading(document, "Recent Mental Check-ins", subheadingFont);
             PdfPTable mentalTable = new PdfPTable(new float[]{2, 1.5f, 1.5f, 1.5f, 2});
             mentalTable.setWidthPercentage(100);
             mentalTable.setSpacingAfter(16);
-
             addTableHeader(mentalTable, new String[]{"Date", "Stress", "Mood", "Sleep", "Stressor"}, subheadingFont);
 
             for (DailyMentalLog log : mentalLogs.stream().limit(10).toList()) {
@@ -283,25 +249,23 @@ public class PdfReportService {
 
         addDivider(document);
 
-        // ===============================
-        // FLARE HISTORY
-        // ===============================
         document.add(Chunk.NEWLINE);
         addSectionHeader(document, "Flare History", headingFont);
 
         if (flares.isEmpty()) {
-            Paragraph noFlares = new Paragraph(
-                    "No flares recorded in this period.", bodyFont);
+            Paragraph noFlares = new Paragraph("No flares recorded in this period.", bodyFont);
             noFlares.setSpacingAfter(16);
             document.add(noFlares);
         } else {
+            DateTimeFormatter dtFmt = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a");
             for (Flare flare : flares) {
                 PdfPTable flareTable = new PdfPTable(1);
                 flareTable.setWidthPercentage(100);
                 flareTable.setSpacingAfter(10);
 
-                String flareHeader = "Flare: " + flare.getStartDate().format(fmt) +
-                        (flare.getEndDate() != null ? " → " + flare.getEndDate().format(fmt) : " → ongoing") +
+                String flareHeader = "Flare: " +
+                        (flare.getStartDate() != null ? flare.getStartDate().format(dtFmt) : "--") +
+                        (flare.getEndDate() != null ? " → " + flare.getEndDate().format(dtFmt) : " → ongoing") +
                         "  |  Severity: " + (flare.getSeverity() != null ? flare.getSeverity() + "/10" : "--");
 
                 PdfPCell headerCell = new PdfPCell(new Phrase(flareHeader, accentFont));
@@ -311,24 +275,21 @@ public class PdfReportService {
                 flareTable.addCell(headerCell);
 
                 if (flare.getPhysicalContext() != null && !flare.getPhysicalContext().isEmpty()) {
-                    PdfPCell physCell = new PdfPCell(new Phrase(
-                            "Physical context: " + flare.getPhysicalContext(), bodyFont));
+                    PdfPCell physCell = new PdfPCell(new Phrase("Physical context: " + flare.getPhysicalContext(), bodyFont));
                     physCell.setPadding(6);
                     physCell.setBorderColor(LIGHT_GRAY);
                     flareTable.addCell(physCell);
                 }
 
                 if (flare.getMentalContext() != null && !flare.getMentalContext().isEmpty()) {
-                    PdfPCell mentCell = new PdfPCell(new Phrase(
-                            "Mental context: " + flare.getMentalContext(), bodyFont));
+                    PdfPCell mentCell = new PdfPCell(new Phrase("Mental context: " + flare.getMentalContext(), bodyFont));
                     mentCell.setPadding(6);
                     mentCell.setBorderColor(LIGHT_GRAY);
                     flareTable.addCell(mentCell);
                 }
 
                 if (flare.getPotentialTriggers() != null && !flare.getPotentialTriggers().isEmpty()) {
-                    PdfPCell trigCell = new PdfPCell(new Phrase(
-                            "Potential triggers: " + flare.getPotentialTriggers(), bodyFont));
+                    PdfPCell trigCell = new PdfPCell(new Phrase("Potential triggers: " + flare.getPotentialTriggers(), bodyFont));
                     trigCell.setPadding(6);
                     trigCell.setBorderColor(LIGHT_GRAY);
                     flareTable.addCell(trigCell);
@@ -338,16 +299,12 @@ public class PdfReportService {
             }
         }
 
-        // ===============================
-        // FOOTER NOTE
-        // ===============================
         document.add(Chunk.NEWLINE);
         addDivider(document);
         Paragraph footer = new Paragraph(
                 "This report was generated by Flara and is intended to support conversations with your healthcare provider. " +
                         "It does not constitute medical advice. Please share this with your gastroenterologist or care team.",
-                smallFont
-        );
+                smallFont);
         footer.setAlignment(Element.ALIGN_CENTER);
         footer.setSpacingBefore(10);
         document.add(footer);
@@ -355,10 +312,6 @@ public class PdfReportService {
         document.close();
         return out.toByteArray();
     }
-
-    // ===============================
-    // HELPER METHODS
-    // ===============================
 
     private void addDivider(Document document) throws DocumentException {
         LineSeparator line = new LineSeparator();
@@ -386,12 +339,8 @@ public class PdfReportService {
         cell.setPadding(10);
         cell.setBorderColor(LIGHT_GRAY);
         cell.setBackgroundColor(new BaseColor(250, 250, 250));
-
-        Paragraph labelPara = new Paragraph(label,
-                new Font(Font.FontFamily.HELVETICA, 9, Font.NORMAL, TEXT_GRAY));
-        Paragraph valuePara = new Paragraph(value,
-                new Font(Font.FontFamily.HELVETICA, 16, Font.BOLD, valueColor));
-
+        Paragraph labelPara = new Paragraph(label, new Font(Font.FontFamily.HELVETICA, 9, Font.NORMAL, TEXT_GRAY));
+        Paragraph valuePara = new Paragraph(value, new Font(Font.FontFamily.HELVETICA, 16, Font.BOLD, valueColor));
         cell.addElement(labelPara);
         cell.addElement(valuePara);
         table.addCell(cell);
@@ -402,14 +351,10 @@ public class PdfReportService {
         cell.setPadding(10);
         cell.setBorderColor(LIGHT_GRAY);
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
-
-        Paragraph numPara = new Paragraph(number,
-                new Font(Font.FontFamily.HELVETICA, 20, Font.BOLD, TEXT_DARK));
+        Paragraph numPara = new Paragraph(number, new Font(Font.FontFamily.HELVETICA, 20, Font.BOLD, TEXT_DARK));
         numPara.setAlignment(Element.ALIGN_CENTER);
-
         Paragraph labelPara = new Paragraph(label, labelFont);
         labelPara.setAlignment(Element.ALIGN_CENTER);
-
         cell.addElement(numPara);
         cell.addElement(labelPara);
         table.addCell(cell);
@@ -420,20 +365,14 @@ public class PdfReportService {
         cell.setPadding(8);
         cell.setBorderColor(LIGHT_GRAY);
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
-
         int pct = total > 0 ? (int) Math.round((double) days / total * 100) : 0;
         BaseColor color = pct >= 50 ? RED : pct >= 25 ? AMBER : GREEN;
-
-        Paragraph pctPara = new Paragraph(pct + "%",
-                new Font(Font.FontFamily.HELVETICA, 14, Font.BOLD, color));
+        Paragraph pctPara = new Paragraph(pct + "%", new Font(Font.FontFamily.HELVETICA, 14, Font.BOLD, color));
         pctPara.setAlignment(Element.ALIGN_CENTER);
-
         Paragraph namePara = new Paragraph(name, smallFont);
         namePara.setAlignment(Element.ALIGN_CENTER);
-
         Paragraph daysPara = new Paragraph(days + " days", smallFont);
         daysPara.setAlignment(Element.ALIGN_CENTER);
-
         cell.addElement(pctPara);
         cell.addElement(namePara);
         cell.addElement(daysPara);

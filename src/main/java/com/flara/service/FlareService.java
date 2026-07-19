@@ -8,7 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -29,7 +29,7 @@ public class FlareService {
     public Flare saveFlare(String username, Flare flare) {
         User user = getUser(username);
         flare.setUser(user);
-        if (flare.getStartDate() == null) flare.setStartDate(LocalDate.now());
+        if (flare.getStartDate() == null) flare.setStartDate(LocalDateTime.now());
         return flareRepository.save(flare);
     }
 
@@ -38,7 +38,7 @@ public class FlareService {
         return flareRepository.findByUserIdOrderByStartDateDesc(user.getId());
     }
 
-    public List<Flare> getFlaresByRange(String username, LocalDate start, LocalDate end) {
+    public List<Flare> getFlaresByRange(String username, LocalDateTime start, LocalDateTime end) {
         User user = getUser(username);
         return flareRepository.findByUserIdAndStartDateBetweenOrderByStartDateDesc(
                 user.getId(), start, end);
