@@ -53,6 +53,11 @@ public class DailyPhysicalLog {
     // Bristol Stool Scale type (1-7)
     private Integer bristolType;
 
+    // Stores individual bowel movement logs as JSON
+    // e.g. [{"type":4,"blood":"NONE"},{"type":6,"blood":"TRACE"}]
+    @Column(columnDefinition = "TEXT")
+    private String bowelMovementLogs;
+
     // Blood presence: NONE, TRACE, MODERATE, SIGNIFICANT
     @Enumerated(EnumType.STRING)
     private BloodPresence bloodPresence;
