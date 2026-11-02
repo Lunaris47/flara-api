@@ -7,6 +7,8 @@ import com.flara.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
+import com.flara.exception.ForbiddenException;
+import com.flara.exception.NotFoundException;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -47,9 +49,9 @@ public class FlareService {
     public Flare updateFlare(String username, Long flareId, Flare updated) {
         User user = getUser(username);
         Flare existing = flareRepository.findById(flareId)
-                .orElseThrow(() -> new RuntimeException("Flare not found."));
+                .orElseThrow(() -> new NotFoundException("Flare not found."));
         if (!existing.getUser().getId().equals(user.getId())) {
-            throw new RuntimeException("Unauthorized.");
+            throw new ForbiddenException("You do not have access to this record.");
         }
         updated.setId(flareId);
         updated.setUser(user);
@@ -59,9 +61,9 @@ public class FlareService {
     public void deleteFlare(String username, Long flareId) {
         User user = getUser(username);
         Flare existing = flareRepository.findById(flareId)
-                .orElseThrow(() -> new RuntimeException("Flare not found."));
+                .orElseThrow(() -> new NotFoundException("Flare not found."));
         if (!existing.getUser().getId().equals(user.getId())) {
-            throw new RuntimeException("Unauthorized.");
+            throw new ForbiddenException("You do not have access to this record.");
         }
         flareRepository.deleteById(flareId);
     }

@@ -9,6 +9,8 @@ import com.flara.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
+import com.flara.exception.ForbiddenException;
+import com.flara.exception.NotFoundException;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -66,10 +68,10 @@ public class DailyLogService {
     public DailyPhysicalLog updatePhysicalLog(String username, Long logId, DailyPhysicalLog updated) {
         User user = getUser(username);
         DailyPhysicalLog existing = physicalLogRepository.findById(logId)
-                .orElseThrow(() -> new RuntimeException("Log not found."));
+                .orElseThrow(() -> new NotFoundException("Log not found."));
 
         if (!existing.getUser().getId().equals(user.getId())) {
-            throw new RuntimeException("Unauthorized.");
+            throw new ForbiddenException("You do not have access to this record.");
         }
 
         updated.setId(logId);
@@ -111,10 +113,10 @@ public class DailyLogService {
     public DailyMentalLog updateMentalLog(String username, Long logId, DailyMentalLog updated) {
         User user = getUser(username);
         DailyMentalLog existing = mentalLogRepository.findById(logId)
-                .orElseThrow(() -> new RuntimeException("Log not found."));
+                .orElseThrow(() -> new NotFoundException("Log not found."));
 
         if (!existing.getUser().getId().equals(user.getId())) {
-            throw new RuntimeException("Unauthorized.");
+            throw new ForbiddenException("You do not have access to this record.");
         }
 
         updated.setId(logId);
@@ -126,9 +128,9 @@ public class DailyLogService {
     public void deletePhysicalLog(String username, Long logId) {
         User user = getUser(username);
         DailyPhysicalLog existing = physicalLogRepository.findById(logId)
-                .orElseThrow(() -> new RuntimeException("Log not found."));
+                .orElseThrow(() -> new NotFoundException("Log not found."));
         if (!existing.getUser().getId().equals(user.getId())) {
-            throw new RuntimeException("Unauthorized.");
+            throw new ForbiddenException("You do not have access to this record.");
         }
         physicalLogRepository.deleteById(logId);
     }
@@ -136,9 +138,9 @@ public class DailyLogService {
     public void deleteMentalLog(String username, Long logId) {
         User user = getUser(username);
         DailyMentalLog existing = mentalLogRepository.findById(logId)
-                .orElseThrow(() -> new RuntimeException("Log not found."));
+                .orElseThrow(() -> new NotFoundException("Log not found."));
         if (!existing.getUser().getId().equals(user.getId())) {
-            throw new RuntimeException("Unauthorized.");
+            throw new ForbiddenException("You do not have access to this record.");
         }
         mentalLogRepository.deleteById(logId);
     }

@@ -7,6 +7,8 @@ import com.flara.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
+import com.flara.exception.ForbiddenException;
+import com.flara.exception.NotFoundException;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -52,9 +54,9 @@ public class MedicationLogService {
     public MedicationLog updateMedicationLog(String username, Long logId, MedicationLog updated) {
         User user = getUser(username);
         MedicationLog existing = medicationLogRepository.findById(logId)
-                .orElseThrow(() -> new RuntimeException("Medication log not found."));
+                .orElseThrow(() -> new NotFoundException("Medication log not found."));
         if (!existing.getUser().getId().equals(user.getId())) {
-            throw new RuntimeException("Unauthorized.");
+            throw new ForbiddenException("You do not have access to this record.");
         }
         updated.setId(logId);
         updated.setUser(user);
@@ -64,9 +66,9 @@ public class MedicationLogService {
     public void deleteMedicationLog(String username, Long logId) {
         User user = getUser(username);
         MedicationLog existing = medicationLogRepository.findById(logId)
-                .orElseThrow(() -> new RuntimeException("Medication log not found."));
+                .orElseThrow(() -> new NotFoundException("Medication log not found."));
         if (!existing.getUser().getId().equals(user.getId())) {
-            throw new RuntimeException("Unauthorized.");
+            throw new ForbiddenException("You do not have access to this record.");
         }
         medicationLogRepository.deleteById(logId);
     }
