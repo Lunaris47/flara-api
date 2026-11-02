@@ -13,6 +13,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Handles user account management endpoints.
@@ -33,6 +34,7 @@ public class UserController {
      * Permanently deletes the user account and all associated data.
      */
     @DeleteMapping("/delete")
+    @Transactional
     public ResponseEntity<Void> deleteAccount(
             @AuthenticationPrincipal UserDetails userDetails) {
 
