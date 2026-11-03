@@ -23,8 +23,28 @@ import java.util.List;
 import java.util.OptionalDouble;
 
 /**
- * Generates a professional PDF health report for doctor appointments.
- * Covers physical symptoms, mental health, and flare history.
+ * Builds the PDF health report a user takes to a medical appointment.
+ *
+ * <p>The report is the application's main output. Everything else in Flara
+ * exists to feed it: a consultation is short, and a patient trying to recall
+ * three months of symptoms from memory does badly. This produces a single
+ * document covering physical symptoms, mental state and flare history over a
+ * chosen window.
+ *
+ * <p><b>Known design issue.</b> At around 440 lines this class does three jobs:
+ * it fetches data, aggregates it into statistics, and lays out a document. The
+ * natural split is a service that assembles a report model and a separate
+ * renderer that turns that model into a PDF, which would also make the
+ * aggregation testable without generating a file. It is the first refactor this
+ * codebase needs.
+ *
+ * <p>Note also that it injects four repositories directly rather than going
+ * through the other services. That bypasses their ownership checks, which is
+ * safe here only because every query below is scoped by the resolved user's id.
+ *
+ * <p>Rendering uses iText 5. Generation runs inline on the request thread, which
+ * is acceptable at current data volumes but would belong in a background job
+ * for long reporting windows.
  */
 @Service
 @RequiredArgsConstructor
@@ -35,6 +55,13 @@ public class PdfReportService {
     private final DailyMentalLogRepository mentalLogRepository;
     private final FlareRepository flareRepository;
 
+    // ===============================
+    // PALETTE
+    // Shared by every report, so held as static constants rather than
+    // reconstructed per call. RED, GREEN and AMBER are used to colour
+    // severity values, not as decoration.
+    // ===============================
+
     private static final BaseColor ACCENT = new BaseColor(200, 169, 126);
     private static final BaseColor LIGHT_GRAY = new BaseColor(240, 240, 240);
     private static final BaseColor TEXT_DARK = new BaseColor(44, 44, 44);
@@ -43,7 +70,31 @@ public class PdfReportService {
     private static final BaseColor GREEN = new BaseColor(104, 211, 145);
     private static final BaseColor AMBER = new BaseColor(246, 173, 85);
 
+    /**
+     * Builds a complete report for one user over a trailing window of days.
+     *
+     * <p>Runs in three phases:
+     * <ol>
+     *   <li><b>Fetch.</b> Resolve the user, compute the date window, then pull
+     *       physical logs, mental logs and flares for that window.</li>
+     *   <li><b>Aggregate.</b> Derive the averages and counts shown in the
+     *       summary panels.</li>
+     *   <li><b>Render.</b> Lay out the document section by section into an
+     *       in-memory stream.</li>
+     * </ol>
+     *
+     * <p>The result is returned as a byte array rather than written to disk, so
+     * nothing is persisted server-side and the controller can stream it straight
+     * back as an attachment.
+     *
+     * @param username the authenticated caller, whose data the report covers
+     * @param days     how many days back from today to include
+     * @return the finished PDF as bytes
+     * @throws Exception if the document cannot be built
+     */
     public byte[] generateReport(String username, int days) throws Exception {
+
+        // --- Phase 1: fetch -------------------------------------------------
 
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
@@ -58,11 +109,17 @@ public class PdfReportService {
         List<DailyMentalLog> mentalLogs = mentalLogRepository
                 .findByUserIdAndLogDateBetweenOrderByLogDateDesc(user.getId(), startDate, endDate);
 
+        // Flares are timestamped rather than dated, so the LocalDate window is
+        // widened to cover the whole of the first and last day.
         List<Flare> flares = flareRepository
                 .findByUserIdAndStartDateBetweenOrderByStartDateDesc(
                         user.getId(),
                         startDate.atStartOfDay(),
                         endDate.atTime(23, 59, 59));
+
+        // --- Phase 3: render ------------------------------------------------
+        // Written to an in-memory stream, never to disk, so the controller can
+        // return the bytes directly and nothing is left on the server.
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         Document document = new Document(PageSize.A4, 50, 50, 60, 60);
@@ -104,6 +161,11 @@ public class PdfReportService {
         PdfPTable summaryTable = new PdfPTable(4);
         summaryTable.setWidthPercentage(100);
         summaryTable.setSpacingAfter(16);
+
+        // --- Phase 2: aggregate ---------------------------------------------
+        // Null scores are filtered out rather than counted as zero, so a day the
+        // user left blank does not drag an average down. orElse(0) covers the
+        // case where every value in the window is missing.
 
         double avgPain = physicalLogs.stream()
                 .filter(l -> l.getPainScore() != null)
@@ -313,6 +375,11 @@ public class PdfReportService {
         return out.toByteArray();
     }
 
+    /**
+     * Draws a full-width horizontal rule, used to separate major sections.
+     *
+     * @param document the document being built
+     */
     private void addDivider(Document document) throws DocumentException {
         LineSeparator line = new LineSeparator();
         line.setLineColor(new BaseColor(220, 220, 220));
@@ -320,6 +387,16 @@ public class PdfReportService {
         document.add(new Chunk(line));
     }
 
+    /**
+     * Writes a top-level section heading with consistent spacing above and below.
+     *
+     * <p>Centralised so every section in the report is spaced identically; the
+     * alternative is tuning paragraph spacing by hand at each call site.
+     *
+     * @param document the document being built
+     * @param text     the heading text
+     * @param font     the heading font
+     */
     private void addSectionHeader(Document document, String text, Font font) throws DocumentException {
         Paragraph heading = new Paragraph(text, font);
         heading.setSpacingBefore(8);
@@ -327,6 +404,13 @@ public class PdfReportService {
         document.add(heading);
     }
 
+    /**
+     * Writes a second-level heading inside a section.
+     *
+     * @param document the document being built
+     * @param text     the subheading text
+     * @param font     the subheading font
+     */
     private void addSubheading(Document document, String text, Font font) throws DocumentException {
         Paragraph sub = new Paragraph(text, font);
         sub.setSpacingBefore(6);
@@ -334,6 +418,18 @@ public class PdfReportService {
         document.add(sub);
     }
 
+    /**
+     * Adds one panel to the summary row at the top of the report.
+     *
+     * <p>The value is coloured by severity rather than by category, so a
+     * clinician scanning the page sees where the problems are before reading
+     * any numbers.
+     *
+     * @param table      the summary table being assembled
+     * @param label      what the figure measures, for example "Avg Pain"
+     * @param value      the formatted figure
+     * @param valueColor severity colour for the figure
+     */
     private void addSummaryCell(PdfPTable table, String label, String value, BaseColor valueColor) {
         PdfPCell cell = new PdfPCell();
         cell.setPadding(10);
@@ -346,6 +442,15 @@ public class PdfReportService {
         table.addCell(cell);
     }
 
+    /**
+     * Adds a large-number statistic cell, used for counts rather than averages.
+     *
+     * @param table     the table being assembled
+     * @param number    the figure, pre-formatted
+     * @param label     what it counts
+     * @param numFont   font for the figure
+     * @param labelFont font for the caption
+     */
     private void addStatCell(PdfPTable table, String number, String label, Font numFont, Font labelFont) {
         PdfPCell cell = new PdfPCell();
         cell.setPadding(10);
@@ -360,6 +465,20 @@ public class PdfReportService {
         table.addCell(cell);
     }
 
+    /**
+     * Adds a symptom frequency cell, showing days affected against days logged.
+     *
+     * <p>Both numbers are shown deliberately. "12 days" means little on its own;
+     * 12 out of 14 and 12 out of 90 describe very different situations, and the
+     * denominator is what makes the figure interpretable.
+     *
+     * @param table     the table being assembled
+     * @param name      the symptom
+     * @param days      number of logged days on which it was present
+     * @param total     number of days logged in the window
+     * @param bodyFont  font for the main text
+     * @param smallFont font for the secondary text
+     */
     private void addSymptomCell(PdfPTable table, String name, long days, int total, Font bodyFont, Font smallFont) {
         PdfPCell cell = new PdfPCell();
         cell.setPadding(8);
@@ -379,6 +498,13 @@ public class PdfReportService {
         table.addCell(cell);
     }
 
+    /**
+     * Writes a styled header row across a data table.
+     *
+     * @param table   the table being assembled
+     * @param headers the column titles, in order
+     * @param font    the header font
+     */
     private void addTableHeader(PdfPTable table, String[] headers, Font font) {
         for (String header : headers) {
             PdfPCell cell = new PdfPCell(new Phrase(header, font));
@@ -389,6 +515,14 @@ public class PdfReportService {
         }
     }
 
+    /**
+     * Writes one data row, with the first column emphasised.
+     *
+     * @param table     the table being assembled
+     * @param values    cell values, in column order
+     * @param bodyFont  font for the first column
+     * @param smallFont font for the remaining columns
+     */
     private void addTableRow(PdfPTable table, String[] values, Font bodyFont, Font smallFont) {
         for (String value : values) {
             PdfPCell cell = new PdfPCell(new Phrase(value, smallFont));
@@ -398,6 +532,16 @@ public class PdfReportService {
         }
     }
 
+    /**
+     * Flattens a day's boolean symptom flags into one readable phrase.
+     *
+     * <p>The entity stores each symptom as a separate boolean, which suits
+     * querying but reads poorly in a table cell. This collapses the set flags
+     * into a single comma-separated string for display.
+     *
+     * @param log the day's physical log
+     * @return the symptoms present, comma separated
+     */
     private String buildSymptomString(DailyPhysicalLog log) {
         StringBuilder sb = new StringBuilder();
         if (Boolean.TRUE.equals(log.getFatigue())) sb.append("Fatigue, ");
@@ -413,6 +557,16 @@ public class PdfReportService {
         return result.endsWith(", ") ? result.substring(0, result.length() - 2) : result;
     }
 
+    /**
+     * Converts a stress event constant into prose for the report.
+     *
+     * <p>{@code MEDICAL_ANXIETY} is not something to print on a document a
+     * patient hands to their doctor, so the enum names are mapped to readable
+     * labels here rather than being written out directly.
+     *
+     * @param type the recorded stress category, possibly null
+     * @return a human-readable label
+     */
     private String formatStressEvent(DailyMentalLog.StressEventType type) {
         if (type == null) return "None";
         return switch (type) {
@@ -426,12 +580,28 @@ public class PdfReportService {
         };
     }
 
+    /**
+     * Maps an average pain score onto a severity colour.
+     *
+     * <p>Higher is worse for pain, which is why this and
+     * {@link #getStressColor(double)} exist separately from the mood and sleep
+     * figures, where higher is better.
+     *
+     * @param score the average, on a 1 to 10 scale
+     * @return green, amber or red
+     */
     private BaseColor getPainColor(double score) {
         if (score <= 3) return GREEN;
         if (score <= 6) return AMBER;
         return RED;
     }
 
+    /**
+     * Maps an average stress score onto a severity colour. Higher is worse.
+     *
+     * @param score the average, on a 1 to 10 scale
+     * @return green, amber or red
+     */
     private BaseColor getStressColor(double score) {
         if (score <= 3) return GREEN;
         if (score <= 6) return AMBER;
